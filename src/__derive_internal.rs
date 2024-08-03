@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{Attribute, Data, DeriveInput, Fields, LitStr};
 
@@ -86,17 +86,26 @@ fn parse_fields(data: Data) -> Vec<Column> {
     };
 
     for field in fields.named {
-        let mut sql_name = None;
+        let mut sql_name = String::new();
+        let ident = field.ident.unwrap().to_string();
         let mut skip = false;
         for attr in field.attrs {
+            if !attr.meta.path().is_ident("kanu") {
+                continue
+            }
             attr.parse_nested_meta(|meta| {
                 if skip {
                     return Ok(());
                 }
 
                 if meta.path.is_ident("column") {
-                    let value = meta.value().unwrap();
-                    sql_name = Some(value.parse::<LitStr>().unwrap().value());
+                    let Ok(value) = meta.value() else {
+                        sql_name = ident.to_string();
+                        return Ok(())
+                    };
+
+                    sql_name = value.parse::<LitStr>().unwrap().value();
+
                     return Ok(());
                 }
 
@@ -109,12 +118,9 @@ fn parse_fields(data: Data) -> Vec<Column> {
             });
         }
 
-        let ident = field.ident.unwrap().to_string();
-
         if !skip {
-            todo!("");
             field_sql_names.push(Column {
-                sql_name: sql_name.unwrap_or(ident),
+                sql_name,
                 column_type: "".to_string(), // write
             })
         }
@@ -125,6 +131,8 @@ fn parse_fields(data: Data) -> Vec<Column> {
 
 #[cfg(feature = "migrations")]
 fn migrate() -> TokenStream {
+    let expanded = quote! {};
 
+    expanded
 }
 

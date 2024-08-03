@@ -11,7 +11,7 @@ repository = "https://github.com/AlexeyNavalniyPrinted/kanu"
 syn = { version = "2.0.72", features = ["full"] }
 quote = "1.0.36"
 proc-macro2 = "1.0.86"
-tokio = { version = "1.39.2" }
+regex = "1.10.6"
 
 [lib]
 proc-macro = true
