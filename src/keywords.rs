@@ -1,6 +1,9 @@
 use std::cmp::PartialEq;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fmt::Write;
+use proc_macro2::{Ident, TokenStream};
+use quote::{TokenStreamExt, ToTokens};
 use regex::Regex;
 
 #[derive(Debug, PartialEq)]
@@ -8,7 +11,7 @@ pub(crate) enum KeyWord {
     Select,
     Update,
     Delete,
-    Insert,
+    Create,
     And,
     Or,
     Param(String),
@@ -17,11 +20,13 @@ pub(crate) enum KeyWord {
 
 
 impl KeyWord {
-    pub(crate) fn split_to_keywords(input: &String, input_params: usize) -> Vec<KeyWord> {
-        let re = Regex::new(r"(?i)(SelectBy|UpdateBy|DeleteBy|Insert|And|Or)").unwrap();
+    pub(crate) fn split_to_keywords(input: &Ident, input_params: usize) -> Vec<KeyWord> {
+        let re = Regex::new(r"(?i)(SelectBy|UpdateBy|DeleteBy|Create|And|Or)").unwrap();
         let mut param_amount = 0;
         let mut result = Vec::new();
         let mut last_index = 0;
+
+        let input = input.clone().to_string();
 
         for mat in re.find_iter(&input) {
             if mat.start() > last_index {
@@ -33,7 +38,7 @@ impl KeyWord {
                 "SelectBy" => KeyWord::Select,
                 "UpdateBy" => KeyWord::Update,
                 "DeleteBy" => KeyWord::Delete,
-                "Insert" => KeyWord::Insert,
+                "Create" => KeyWord::Create,
                 "And" => KeyWord::And,
                 "Or" => KeyWord::Or,
                 _ => unreachable!(),
@@ -66,7 +71,7 @@ impl KeyWord {
         }
 
         match result[0] {
-            KeyWord::Select | KeyWord::Update | KeyWord::Delete | KeyWord::Insert => {}
+            KeyWord::Select | KeyWord::Update | KeyWord::Delete | KeyWord::Create => {}
             _ => panic!("\"{:?}\" is illegal as the first part", result[0]),
         }
 
@@ -75,7 +80,7 @@ impl KeyWord {
         for (index, keyword) in result.iter().enumerate() {
             if index > 0 {
                 match keyword {
-                    KeyWord::Select | KeyWord::Delete | KeyWord::Insert | KeyWord::Update => {
+                    KeyWord::Select | KeyWord::Delete | KeyWord::Create | KeyWord::Update => {
                         panic!("It is illegal to have multiple actions");
                     }
                     KeyWord::Or | KeyWord::And => {
@@ -102,14 +107,14 @@ impl KeyWord {
 impl Display for KeyWord {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            KeyWord::Select => write!(f, "select from"),
+            KeyWord::Select => write!(f, "select * from "),
             KeyWord::Update => write!(f, "update "),
-            KeyWord::Delete => write!(f, "delete from"),
-            KeyWord::Insert => write!(f, "insert into"),
-            KeyWord::And => write!(f, "and"),
-            KeyWord::Or => write!(f, "or"),
-            KeyWord::Param(param) => write!(f, "{}", param),
-            KeyWord::None => write!(f, "none")
+            KeyWord::Delete => write!(f, "delete from "),
+            KeyWord::Create => write!(f, "insert into "),
+            KeyWord::And => write!(f, "and "),
+            KeyWord::Or => write!(f, "or "),
+            KeyWord::Param(param) => write!(f, "{} ", param),
+            KeyWord::None => write!(f, "none ")
         }
     }
 }

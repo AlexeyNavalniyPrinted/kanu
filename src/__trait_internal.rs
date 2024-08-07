@@ -1,7 +1,8 @@
 use std::any::Any;
+use std::collections::HashMap;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, ToTokens};
-use syn::{Expr, ItemTrait, Lit, LitStr, Meta, Pat, TraitItem, TraitItemFn};
+use syn::{Expr, FnArg, ItemTrait, Lit, LitStr, Meta, Pat, TraitItem, TraitItemFn, Type};
 use syn::parse::Parser;
 use crate::keywords::KeyWord;
 
@@ -27,12 +28,12 @@ pub(crate) fn kanu_trait_internal(meta: Meta, items: ItemTrait) -> TokenStream {
 
     let ident = items.ident;
 
-    let mut fns = quote! {};
+    let mut fns = vec![];
 
     for item in items.items {
         match item {
             TraitItem::Fn(trait_item_fn) => {
-                fns.extend(parse_fn(trait_item_fn))
+                fns.push(parse_fn(trait_item_fn))
             }
             _ => {}
         }
@@ -40,9 +41,7 @@ pub(crate) fn kanu_trait_internal(meta: Meta, items: ItemTrait) -> TokenStream {
 
     let expanded = quote! {
         impl #target {
-            fn hello() {
-                println!("Works")
-            }
+            #(#fns)*
         }
     };
 
@@ -59,20 +58,70 @@ fn check_if_target_name_correct(target_name: &String) {
 
     for char in target_name.chars() {
         if char.is_ascii_digit() {
-            panic!("Target name should contain only letters (No numbers allowed)")
+            panic!("Target name should contain only letters (No numbers are allowed)")
         }
-
+        match char {
+            '!' | '\"' | '#' | '$' | '%' | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | '-' | '.' | '/'
+            | ':' | ';' | '<' | '=' | '>' | '?' | '@' | '[' | '\\' | ']' | '^' | '_' | '`' | '{' | '|'
+            | '}' | '~' | '\t' | '\n' | '\r' | '\x00'..='\x1F' | '\x7F' | ' ' => {
+                panic!("Target name should contain only letters (No special characters are allowed)")
+            }
+            _ => {}
+        }
     }
 }
 
+struct Arg {
+    arg_name: Ident,
+    arg_type: Type,
+}
+
+
 fn parse_fn(trait_item_fn: TraitItemFn) -> TokenStream {
-    let fn_ident = trait_item_fn.sig.ident.to_string();
+    let fn_ident = trait_item_fn.sig.ident;
     let keywords = KeyWord::split_to_keywords(&fn_ident, trait_item_fn.sig.inputs.len());
 
-    println!("{:?}", keywords);
+    let mut args = vec![];
+
+    for fn_arg in trait_item_fn.sig.inputs {
+        if let FnArg::Typed(pat_type) = fn_arg {
+            let arg_type = *pat_type.ty;
+            if let Pat::Ident(pat_ident) = *pat_type.pat {
+                args.push(Arg {
+                    arg_name: pat_ident.ident,
+                    arg_type,
+                });
+            }
+        }
+    }
+
+    let arg_names: Vec<Ident> = args.iter().map(|arg| arg.arg_name.clone()).collect();
+    let arg_types: Vec<Type> = args.iter().map(|arg| arg.arg_type.clone()).collect();
+    let keywords: Vec<proc_macro2::TokenStream> = keywords.iter().map(|kw|
+    {
+        let kw_string = kw.to_string();
+        quote! { #kw_string }
+    }).collect();
+
+
+    println!("{}", fn_ident);
+
+    let output_type = trait_item_fn.sig.output.to_token_stream();
 
     let expanded = quote! {
+        fn #fn_ident(#(#arg_names: #arg_types),*) #output_type {
+            let mut sql = String::new();
 
+            let keywords = vec![#(#keywords),*];
+            for (index,keyword) in keywords.iter().enumerate() {
+                sql.push_str(keyword);
+                if index == keywords.len() - 1 {
+                    sql.push_str(";")
+                }
+            }
+
+            return sql
+        }
     };
 
     expanded
