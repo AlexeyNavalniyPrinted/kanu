@@ -93,7 +93,7 @@ impl KeyWord {
                     }
                     KeyWord::Param(_) => {
                         if matches!(prev_keyword, KeyWord::Param(_)) {
-                            panic!("It is illegal to have two parameters in a row");
+                            panic!("It is illegal to have two same parameters in a row");
                         }
                     }
                     KeyWord::None => {}
@@ -113,7 +113,7 @@ impl Display for KeyWord {
             KeyWord::Create => write!(f, "insert into "),
             KeyWord::And => write!(f, "and "),
             KeyWord::Or => write!(f, "or "),
-            KeyWord::Param(param) => write!(f, "{} ", param),
+            KeyWord::Param(param) => write!(f, "{} = ", param),
             KeyWord::None => write!(f, "none ")
         }
     }

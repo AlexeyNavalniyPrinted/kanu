@@ -40,6 +40,7 @@ pub(crate) fn kanu_trait_internal(meta: Meta, items: ItemTrait) -> TokenStream {
     }
 
     let expanded = quote! {
+        #[allow(non_snake_case)]
         impl #target {
             #(#fns)*
         }
@@ -95,16 +96,17 @@ fn parse_fn(trait_item_fn: TraitItemFn) -> TokenStream {
         }
     }
 
+    let table_name = "tablename";
+
     let arg_names: Vec<Ident> = args.iter().map(|arg| arg.arg_name.clone()).collect();
+
+    let arg_names: Vec<proc_macro2::TokenStream> = args.iter().map(|arg| { let arg_ident = &arg.arg_name ; quote! {#arg_ident}}).collect();
+
     let arg_types: Vec<Type> = args.iter().map(|arg| arg.arg_type.clone()).collect();
-    let keywords: Vec<proc_macro2::TokenStream> = keywords.iter().map(|kw|
-    {
+    let keywords: Vec<proc_macro2::TokenStream> = keywords.iter().map(|kw| {
         let kw_string = kw.to_string();
         quote! { #kw_string }
     }).collect();
-
-
-    println!("{}", fn_ident);
 
     let output_type = trait_item_fn.sig.output.to_token_stream();
 
@@ -112,14 +114,37 @@ fn parse_fn(trait_item_fn: TraitItemFn) -> TokenStream {
         fn #fn_ident(#(#arg_names: #arg_types),*) #output_type {
             let mut sql = String::new();
 
+            let arg_names = vec![#(#arg_names),*];
+            let mut current_arg_index = 0;
+
             let keywords = vec![#(#keywords),*];
-            for (index,keyword) in keywords.iter().enumerate() {
+
+            for (index, keyword) in keywords.iter().enumerate() {
                 sql.push_str(keyword);
+                if index == 0 {
+                    sql.push_str(#table_name);
+                    match keywords[0] {
+                        _ => { sql.push_str(" where "); }
+                    }
+                    continue;
+                }
+
+                if keywords[0] != "update " {
+                    match keyword {
+                        &"select * from " | &"update " | &"delete from " | &"insert into " | &"and " | &"or " => {continue}
+                        _ =>  {}
+                    }
+
+                    if current_arg_index != arg_names.len() - 1 {
+                        current_arg_index += 1;
+                    }
+                    sql.push_str(&format!(" '{}' ", arg_names[current_arg_index]));
+                }
+
                 if index == keywords.len() - 1 {
                     sql.push_str(";")
                 }
             }
-
             return sql
         }
     };
