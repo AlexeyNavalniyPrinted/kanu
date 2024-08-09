@@ -12,6 +12,7 @@ use crate::__trait_internal::kanu_trait_internal;
 mod __trait_internal;
 mod __derive_internal;
 mod keywords;
+mod __internal;
 
 #[cfg(test)]
 mod tests {}

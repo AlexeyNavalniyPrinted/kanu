@@ -10,9 +10,13 @@ pub(crate) fn kanu_derive_internal(input: DeriveInput) -> TokenStream {
     let attrs = parse_attrs(&input.attrs);
     let fields = parse_fields(input.data);
 
+    let table = attrs.table.as_str();
+
     let expanded = quote! {
         impl #name {
-
+            fn table() -> &'static str{
+                #table
+            }
         }
     };
 
@@ -55,6 +59,10 @@ fn parse_attrs(attrs: &Vec<Attribute>) -> Attrs {
         });
     };
 
+    if table.is_empty() {
+        panic!("Table name cannot be empty")
+    }
+
     #[cfg(feature = "migrations")]
     return Attrs {
         table,
@@ -68,6 +76,7 @@ fn parse_attrs(attrs: &Vec<Attribute>) -> Attrs {
 
 struct Column {
     sql_name: String,
+    pk: bool,
     column_type: String // Change to enum
 }
 
@@ -89,6 +98,7 @@ fn parse_fields(data: Data) -> Vec<Column> {
         let mut sql_name = String::new();
         let ident = field.ident.unwrap().to_string();
         let mut skip = false;
+        let mut pk = false;
         for attr in field.attrs {
             if !attr.meta.path().is_ident("kanu") {
                 continue
@@ -114,6 +124,10 @@ fn parse_fields(data: Data) -> Vec<Column> {
                     return Ok(());
                 }
 
+                if meta.path.is_ident("pk") {
+                    pk = true;
+                }
+
                 Err(meta.error("unrecognized repr"))
             });
         }
@@ -121,6 +135,7 @@ fn parse_fields(data: Data) -> Vec<Column> {
         if !skip {
             field_sql_names.push(Column {
                 sql_name,
+                pk,
                 column_type: "".to_string(), // write
             })
         }

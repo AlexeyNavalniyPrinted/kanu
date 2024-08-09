@@ -78,76 +78,139 @@ struct Arg {
 }
 
 
-fn parse_fn(trait_item_fn: TraitItemFn) -> TokenStream {
+fn parse_fn(trait_item_fn: TraitItemFn) -> proc_macro2::TokenStream {
     let fn_ident = trait_item_fn.sig.ident;
     let keywords = KeyWord::split_to_keywords(&fn_ident, trait_item_fn.sig.inputs.len());
 
-    let mut args = vec![];
+    if let FnArg::Typed(_) = trait_item_fn.sig.inputs[0] {
+        let mut args = vec![];
 
-    for fn_arg in trait_item_fn.sig.inputs {
-        if let FnArg::Typed(pat_type) = fn_arg {
-            let arg_type = *pat_type.ty;
-            if let Pat::Ident(pat_ident) = *pat_type.pat {
-                args.push(Arg {
-                    arg_name: pat_ident.ident,
-                    arg_type,
-                });
+        for fn_arg in trait_item_fn.sig.inputs {
+            if let FnArg::Typed(pat_type) = fn_arg {
+                let arg_type = *pat_type.ty;
+                if let Pat::Ident(pat_ident) = *pat_type.pat {
+                    args.push(Arg {
+                        arg_name: pat_ident.ident,
+                        arg_type,
+                    });
+                }
             }
         }
-    }
 
-    let table_name = "tablename";
+        let arg_names: Vec<Ident> = args.iter().map(|arg| arg.arg_name.clone()).collect();
 
-    let arg_names: Vec<Ident> = args.iter().map(|arg| arg.arg_name.clone()).collect();
+        let arg_names: Vec<proc_macro2::TokenStream> = args.iter().map(|arg| {
+            let arg_ident = &arg.arg_name;
+            quote! {#arg_ident}
+        }).collect();
 
-    let arg_names: Vec<proc_macro2::TokenStream> = args.iter().map(|arg| { let arg_ident = &arg.arg_name ; quote! {#arg_ident}}).collect();
+        let arg_types: Vec<Type> = args.iter().map(|arg| arg.arg_type.clone()).collect();
 
-    let arg_types: Vec<Type> = args.iter().map(|arg| arg.arg_type.clone()).collect();
-    let keywords: Vec<proc_macro2::TokenStream> = keywords.iter().map(|kw| {
-        let kw_string = kw.to_string();
-        quote! { #kw_string }
-    }).collect();
 
-    let output_type = trait_item_fn.sig.output.to_token_stream();
+        let keywords: Vec<proc_macro2::TokenStream> = match keywords[0] {
+            KeyWord::Set => {
+                let mut by_found = false;
+                let mut vector = vec![];
 
-    let expanded = quote! {
-        fn #fn_ident(#(#arg_names: #arg_types),*) #output_type {
-            let mut sql = String::new();
-
-            let arg_names = vec![#(#arg_names),*];
-            let mut current_arg_index = 0;
-
-            let keywords = vec![#(#keywords),*];
-
-            for (index, keyword) in keywords.iter().enumerate() {
-                sql.push_str(keyword);
-                if index == 0 {
-                    sql.push_str(#table_name);
-                    match keywords[0] {
-                        _ => { sql.push_str(" where "); }
+                for kw in keywords {
+                    if kw == KeyWord::By {
+                        by_found = true;
                     }
-                    continue;
-                }
 
-                if keywords[0] != "update " {
+                    let kw_string = kw.to_string();
+
+                    if !(kw == KeyWord::And && !by_found) {
+                        vector.push(quote! {#kw_string})
+                    }
+                }
+                vector
+            }
+            _ => {
+                keywords.iter().map(|kw| {
+                    let kw_string = kw.to_string();
+                    quote! { #kw_string }
+                }).collect()
+            }
+        };
+
+
+        let output_type = trait_item_fn.sig.output.to_token_stream();
+
+        let expanded = quote! {
+            pub fn #fn_ident(#(#arg_names: #arg_types),*) #output_type {
+                // New string
+                let mut sql = String::new();
+
+                // Ident vector
+                let arg_names = vec![#(#arg_names),*];
+
+                // Current arg
+                let mut current_arg_index = 0;
+
+                // Keywords vector
+                let keywords = vec![#(#keywords),*];
+
+                for (index, keyword) in keywords.iter().enumerate() {
+                    println!("index: {} ; sql: {}", index, sql);
+                    // Push keywords
+                    sql.push_str(keyword);
+
+                    if index == 0 {
+                        // Push table name
+                        sql.push_str(Self::table());
+
+                        // Push method specific stuff
+                        match keywords[0] {
+                            "insert into " => { sql.push_str(" values( ") },
+                            "update " => { sql.push_str(" set ") }
+                            _ => { sql.push_str(" where "); }
+                        }
+                    }
+
                     match keyword {
-                        &"select * from " | &"update " | &"delete from " | &"insert into " | &"and " | &"or " => {continue}
-                        _ =>  {}
+                        // Checks whether keyword is not an argument
+                        &"select * from " | &"delete from "  | &"and " | &"or " | &"insert into " | &"update " | &" where " => {}
+                        _ =>  {
+                            if current_arg_index != arg_names.len() - 1 {
+                                // increase current arg index
+                                current_arg_index += 1;
+                            }
+
+                            // Push arg
+                            sql.push_str(&format!(" '{}' ", arg_names[current_arg_index]));
+                        }
                     }
 
                     if current_arg_index != arg_names.len() - 1 {
+                        // increase current arg index
                         current_arg_index += 1;
                     }
+
+                    // Push arg
                     sql.push_str(&format!(" '{}' ", arg_names[current_arg_index]));
-                }
 
-                if index == keywords.len() - 1 {
-                    sql.push_str(";")
+                    // Correctly end sql statement
+                    if index == keywords.len() - 1 {
+                        if keywords[0] == "insert into " {
+                            // Insert into specific
+                            for arg_name in &arg_names {
+                                sql.push_str(&format!(" '{}' ", arg_name));
+                                if arg_name != arg_names.last().unwrap() {
+                                    sql.push_str(", ");
+                                }
+                            }
+                            sql.push_str(")")
+                        }
+
+                        sql.push_str(";")
+                    }
                 }
+                return sql
             }
-            return sql
-        }
-    };
+        };
 
-    expanded
+        return expanded;
+    }
+
+    quote! {}
 }
